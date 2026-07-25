@@ -1,0 +1,134 @@
+name: Build Standalone Emulator
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+jobs:
+  build-linux:
+    name: Linux (x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y verilator libsdl2-dev python3 cc65 xxd
+
+      - name: Build
+        run: make all
+
+      - name: Stage package
+        run: |
+          mkdir -p dist/sushic500-linux-x86_64
+          cp build/sushic500-emu dist/sushic500-linux-x86_64/
+          cp build/bios.hex build/charset.hex dist/sushic500-linux-x86_64/ 2>/dev/null || true
+          cp build/hello.bin dist/sushic500-linux-x86_64/hello_cart.bin 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sushic500-linux-x86_64
+          path: dist/sushic500-linux-x86_64
+
+  build-macos:
+    name: macOS (arm64)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install toolchain
+        run: |
+          brew install verilator sdl2 cc65
+
+      - name: Build
+        run: make all
+
+      - name: Stage package
+        run: |
+          mkdir -p dist/sushic500-macos-arm64
+          cp build/sushic500-emu dist/sushic500-macos-arm64/
+          cp build/bios.hex build/charset.hex dist/sushic500-macos-arm64/ 2>/dev/null || true
+          cp build/hello.bin dist/sushic500-macos-arm64/hello_cart.bin 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sushic500-macos-arm64
+          path: dist/sushic500-macos-arm64
+
+  build-windows:
+    name: Windows (MSYS2/MinGW64)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-verilator
+            mingw-w64-x86_64-SDL2
+            mingw-w64-x86_64-cc65
+            mingw-w64-x86_64-python
+            make
+            xxd
+
+      - name: Build
+        run: make all
+
+      - name: Stage package
+        shell: msys2 {0}
+        run: |
+          mkdir -p dist/sushic500-windows-x86_64
+          cp build/sushic500-emu.exe dist/sushic500-windows-x86_64/ 2>/dev/null || \
+            cp build/sushic500-emu dist/sushic500-windows-x86_64/sushic500-emu.exe
+          cp build/bios.hex build/charset.hex dist/sushic500-windows-x86_64/ 2>/dev/null || true
+          cp build/hello.bin dist/sushic500-windows-x86_64/hello_cart.bin 2>/dev/null || true
+          # Bundle the mingw SDL2 runtime DLL so the .exe runs standalone.
+          cp /mingw64/bin/SDL2.dll dist/sushic500-windows-x86_64/ 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sushic500-windows-x86_64
+          path: dist/sushic500-windows-x86_64
+
+  release:
+    name: Attach binaries to release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [ build-linux, build-macos, build-windows ]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Zip each platform's package
+        run: |
+          cd artifacts
+          for d in */; do
+            name="${d%/}"
+            (cd "$name" && zip -r "../${name}.zip" .)
+          done
+
+      - name: Create/update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*.zip
