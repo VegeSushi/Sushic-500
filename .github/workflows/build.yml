@@ -10,17 +10,31 @@ on:
 
 jobs:
   build-linux:
-    name: Linux (x86_64)
+    name: Linux (Arch, x86_64)
     runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
       - name: Install toolchain
         run: |
-          sudo apt-get update
-          sudo apt-get install -y verilator libsdl2-dev python3 cc65 xxd
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm base-devel git verilator sdl2 python
+
+      # cc65 isn't in Arch's official repos (only the AUR), and `makepkg`
+      # refuses to run as root (the default user in this container), so
+      # build it straight from its own source instead.
+      - name: Build cc65 from source
+        run: |
+          git clone --depth 1 https://github.com/cc65/cc65.git /tmp/cc65
+          make -C /tmp/cc65 -j"$(nproc)"
+          make -C /tmp/cc65 PREFIX=/usr/local install
+
+      # actions/checkout doesn't work unmodified as root in some container
+      # images; check out manually instead.
+      - name: Check out repo
+        run: |
+          git clone --recurse-submodules "https://github.com/${GITHUB_REPOSITORY}.git" .
+          git checkout "${GITHUB_SHA}"
 
       - name: Build
         run: make all
@@ -84,10 +98,19 @@ jobs:
             mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-verilator
             mingw-w64-x86_64-SDL2
-            mingw-w64-x86_64-cc65
             mingw-w64-x86_64-python
             make
-            xxd
+
+      # cc65 isn't packaged for MSYS2/MinGW64, so grab the official prebuilt
+      # Windows snapshot instead and put it on PATH for the rest of the job.
+      - name: Install cc65 (prebuilt Windows snapshot)
+        shell: msys2 {0}
+        run: |
+          curl -L -o /tmp/cc65.zip \
+            "https://sourceforge.net/projects/cc65/files/cc65-snapshot-win64.zip/download"
+          mkdir -p /c/cc65
+          unzip -q /tmp/cc65.zip -d /c/cc65
+          echo "/c/cc65/bin" >> "$GITHUB_PATH"
 
       - name: Build
         run: make all
