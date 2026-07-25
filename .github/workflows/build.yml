@@ -54,82 +54,10 @@ jobs:
           name: sushic500-linux-x86_64
           path: dist/sushic500-linux-x86_64
 
-  build-windows:
-    name: Windows (MSYS2/MinGW64)
-    runs-on: windows-latest
-    defaults:
-      run:
-        shell: msys2 {0}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Set up MSYS2
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            mingw-w64-x86_64-toolchain
-            mingw-w64-x86_64-verilator
-            mingw-w64-x86_64-SDL2
-            mingw-w64-x86_64-python
-            make
-            unzip
-
-      # cc65 isn't packaged for MSYS2/MinGW64, so grab the official prebuilt
-      # Windows snapshot instead and put it on PATH for the rest of the job.
-      - name: Install cc65 (prebuilt Windows snapshot)
-        shell: msys2 {0}
-        run: |
-          curl -L -o /tmp/cc65.zip \
-            "https://sourceforge.net/projects/cc65/files/cc65-snapshot-win64.zip/download"
-          mkdir -p /c/tools/cc65
-          unzip -q /tmp/cc65.zip -d /c/tools/cc65
-
-          # Don't assume the internal folder layout (it has changed between
-          # snapshot builds before) - just find wherever the .exe's landed.
-          CA65_DIR="$(dirname "$(find /c/tools/cc65 -iname 'ca65.exe' | head -n1)")"
-          if [ -z "$CA65_DIR" ]; then
-            echo "::error::Could not locate ca65.exe after extracting cc65 snapshot"
-            find /c/tools/cc65 -maxdepth 3
-            exit 1
-          fi
-          echo "Found cc65 tools in: $CA65_DIR"
-
-          # $GITHUB_PATH doesn't reliably carry over between separate
-          # `msys2 {0}` shell invocations (MSYS2 re-derives its own PATH on
-          # each shell start), so install straight into /mingw64/bin instead,
-          # which is already on PATH for every subsequent msys2 step.
-          # (Only the binaries are needed - the Makefile uses `-t none` and
-          # supplies its own sw/link.ld / sw/cart_link.ld, not cc65's
-          # built-in target configs/headers.)
-          cp "$CA65_DIR"/*.exe /mingw64/bin/
-
-      - name: Build
-        run: make all
-
-      - name: Stage package
-        shell: msys2 {0}
-        run: |
-          mkdir -p dist/sushic500-windows-x86_64
-          cp build/sushic500-emu.exe dist/sushic500-windows-x86_64/ 2>/dev/null || \
-            cp build/sushic500-emu dist/sushic500-windows-x86_64/sushic500-emu.exe
-          cp build/bios.hex build/charset.hex dist/sushic500-windows-x86_64/ 2>/dev/null || true
-          cp build/hello.bin dist/sushic500-windows-x86_64/hello_cart.bin 2>/dev/null || true
-          # Bundle the mingw SDL2 runtime DLL so the .exe runs standalone.
-          cp /mingw64/bin/SDL2.dll dist/sushic500-windows-x86_64/ 2>/dev/null || true
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sushic500-windows-x86_64
-          path: dist/sushic500-windows-x86_64
-
   release:
     name: Attach binaries to release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [ build-linux, build-windows ]
+    needs: [ build-linux ]
     runs-on: ubuntu-latest
     permissions:
       contents: write
