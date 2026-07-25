@@ -125,7 +125,7 @@ ClearLoop1:
 
 ; --- Boot Data ---
 BOOT_MSG:
-    .asciiz "SUSHIC-500 SYSTEM V1.0 READY"
+    .asciiz "SUSHIC-500 SHELL"
 
 .segment "VECTORS"
 .word 0000      ; NMI

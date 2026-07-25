@@ -58,6 +58,7 @@ module sushic500_top (
     );
 
     wire [10:0] char_a;
+    wire [7:0]  char_d_o;
 
     // MC6847 instantiated with ALL pins explicitly mapped
     mc6847 vdp (
@@ -99,8 +100,10 @@ module sushic500_top (
         
         // External Font ROM Interface
         .char_a(char_a),
-        .char_d_o(8'hAA)       // Dummy checkerboard pattern for missing Font ROM
+        .char_d_o(char_d_o)
     );
+
+    char_rom font (.clk(clk_27mhz), .addr(char_a), .dout(char_d_o));
 
     cart_rom cart (.clk(clk_1mhz), .addr(cpu_addr - 16'h8000), .dout(cart_data_out));
     sys_rom rom (.clk(clk_1mhz), .addr(cpu_addr - 16'hD000), .dout(rom_data_out));

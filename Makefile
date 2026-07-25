@@ -1,6 +1,7 @@
 CA65 = ca65
 LD65 = ld65
 VERILATOR = verilator
+PYTHON = python3
 
 BUILD_DIR = build
 SW_DIR = sw
@@ -12,13 +13,14 @@ VERILOG_SRCS = $(HW_DIR)/sushic500_top.v \
                $(HW_DIR)/sys_ram.v \
                $(HW_DIR)/sys_rom.v \
                $(HW_DIR)/cart_rom.v \
+               $(HW_DIR)/char_rom.v \
                $(HW_DIR)/mc6847.v \
                $(EXT_DIR)/verilog-6502/cpu.v \
                $(EXT_DIR)/verilog-6502/ALU.v
 
-.PHONY: all rom cart emu clean
+.PHONY: all rom cart charset emu clean
 
-all: rom cart emu
+all: rom cart charset emu
 
 # --- BIOS ROM ---
 rom: $(BUILD_DIR)/bios.hex
@@ -43,8 +45,15 @@ $(BUILD_DIR)/hello_cart.o: $(SW_DIR)/hello_cart.asm
 $(BUILD_DIR)/hello.bin: $(BUILD_DIR)/hello_cart.o $(SW_DIR)/cart_link.ld
 	$(LD65) -C $(SW_DIR)/cart_link.ld $< -o $@
 
+# --- CHARACTER ROM ---
+charset: $(BUILD_DIR)/charset.hex
+
+$(BUILD_DIR)/charset.hex: $(SW_DIR)/gen_charset.py
+	@mkdir -p $(BUILD_DIR)
+	$(PYTHON) $(SW_DIR)/gen_charset.py
+
 # --- EMULATOR ---
-emu: $(BUILD_DIR)/bios.hex
+emu: $(BUILD_DIR)/bios.hex $(BUILD_DIR)/charset.hex
 	@mkdir -p $(BUILD_DIR)
 	$(VERILATOR) -cc --exe --build -j 4 \
 		-Wno-WIDTHEXPAND -Wno-WIDTHTRUNC \
