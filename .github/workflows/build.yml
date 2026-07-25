@@ -85,9 +85,19 @@ jobs:
         run: |
           curl -L -o /tmp/cc65.zip \
             "https://sourceforge.net/projects/cc65/files/cc65-snapshot-win64.zip/download"
-          mkdir -p /c/cc65
-          unzip -q /tmp/cc65.zip -d /c/cc65
-          echo "/c/cc65/bin" >> "$GITHUB_PATH"
+          mkdir -p /c/tools/cc65
+          unzip -q /tmp/cc65.zip -d /c/tools/cc65
+
+          # Don't assume the internal folder layout (it has changed between
+          # snapshot builds before) - just find wherever ca65.exe landed.
+          CA65_DIR="$(dirname "$(find /c/tools/cc65 -iname 'ca65.exe' | head -n1)")"
+          if [ -z "$CA65_DIR" ]; then
+            echo "::error::Could not locate ca65.exe after extracting cc65 snapshot"
+            find /c/tools/cc65 -maxdepth 3
+            exit 1
+          fi
+          echo "Found cc65 tools in: $CA65_DIR"
+          echo "$CA65_DIR" >> "$GITHUB_PATH"
 
       - name: Build
         run: make all
