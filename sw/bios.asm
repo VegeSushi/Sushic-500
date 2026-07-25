@@ -45,11 +45,38 @@ REPL_LOOP:
     JSR DO_READ_KEY     
     CMP #$0D            
     BEQ PARSE_CMD
-    
+    CMP #$08
+    BEQ DO_BACKSPACE
+
     JSR DO_PRINT_CHAR
     LDX BUFPTR
     STA CMDBUF, X
     INC BUFPTR
+    JMP REPL_LOOP
+
+DO_BACKSPACE:
+    LDA BUFPTR
+    BEQ REPL_LOOP        ; nothing to delete, ignore
+
+    DEC BUFPTR
+
+    ; step cursor back one cell
+    LDA CURSOR
+    BNE SkipDecHigh
+    DEC CURSOR+1
+SkipDecHigh:
+    DEC CURSOR
+
+    LDA #' '
+    JSR DO_PRINT_CHAR    ; overwrite the glyph with a space...
+
+    ; ...then step cursor back again so we're positioned on that blank cell
+    LDA CURSOR
+    BNE SkipDecHigh2
+    DEC CURSOR+1
+SkipDecHigh2:
+    DEC CURSOR
+
     JMP REPL_LOOP
 
 PARSE_CMD:
