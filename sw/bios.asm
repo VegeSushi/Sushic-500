@@ -107,14 +107,11 @@ SkipIncHigh:
     RTS
 
 DO_CLEAR_VRAM:
-    ; Reset cursor to top-left of screen ($0400)
     LDA #$00
     STA CURSOR
     LDA #$04
     STA CURSOR+1
-
-    ; Fill 512 bytes (MC6847 standard text screen size) with spaces ($20)
-    LDA #$20
+    LDA #$20        ; space
     LDX #0
 ClearLoop1:
     STA $0400, X

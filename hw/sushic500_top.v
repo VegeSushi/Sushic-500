@@ -27,18 +27,28 @@ module sushic500_top (
     wire [7:0] rom_data_out;
     wire [7:0] cart_data_out;
 
-    wire cs_ram  = (cpu_addr < 16'h8000);                      // 0x0000 - 0x7FFF
-    wire cs_cart = (cpu_addr >= 16'h8000 && cpu_addr < 16'hC000); // 0x8000 - 0xBFFF
-    wire cs_kbd  = (cpu_addr == 16'hC002 || cpu_addr == 16'hC003); // 0xC002 - 0xC003
-    wire cs_rom  = (cpu_addr >= 16'hD000);                     // 0xD000 - 0xFFFF
+    wire cs_ram  = (cpu_addr < 16'h8000);
+    wire cs_cart = (cpu_addr >= 16'h8000 && cpu_addr < 16'hC000);
+    wire cs_kbd  = (cpu_addr == 16'hC002 || cpu_addr == 16'hC003);
+    wire cs_rom  = (cpu_addr >= 16'hD000);
+
+    reg cs_ram_r, cs_cart_r, cs_rom_r;
+    reg [15:0] cpu_addr_r;
+
+    always @(posedge clk_1mhz) begin
+        cs_ram_r    <= cs_ram;
+        cs_cart_r   <= cs_cart;
+        cs_rom_r    <= cs_rom;
+        cpu_addr_r  <= cpu_addr;
+    end
 
     always @(*) begin
-        if (cs_ram)           cpu_data_in = ram_data_out;
-        else if (cs_cart)     cpu_data_in = cart_data_out;
-        else if (cs_rom)      cpu_data_in = rom_data_out;
-        else if (cpu_addr == 16'hC002) cpu_data_in = emu_kbd_data;
-        else if (cpu_addr == 16'hC003) cpu_data_in = {7'b0, emu_kbd_ready};
-        else                  cpu_data_in = 8'hEA; // NOP
+        if (cs_ram_r)           cpu_data_in = ram_data_out;
+        else if (cs_cart_r)     cpu_data_in = cart_data_out;
+        else if (cs_rom_r)      cpu_data_in = rom_data_out;
+        else if (cpu_addr_r == 16'hC002) cpu_data_in = emu_kbd_data;
+        else if (cpu_addr_r == 16'hC003) cpu_data_in = {7'b0, emu_kbd_ready};
+        else                     cpu_data_in = 8'hEA; // NOP
     end
 
     cpu main_cpu (
