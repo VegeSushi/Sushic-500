@@ -93,8 +93,8 @@ int main(int argc, char** argv) {
         top->clk_27mhz = 1; 
         top->eval();
 
-        // 1. Plot Pixels
-        if (top->hsync == 0 && top->vsync == 0) {
+        // 1. Plot Pixels (active display = not in hblank/vblank)
+        if (!top->hblank && !top->vblank) {
             if (px < TEX_W && py < TEX_H) {
                 // The Verilog module outputs 4-bit color (0-15).
                 // Multiply by 17 (<< 4 | bitwise OR) to scale to 8-bit color (0-255).

@@ -8,6 +8,8 @@ module sushic500_top (
     output wire [3:0] vga_b,
     output wire hsync,
     output wire vsync,
+    output wire hblank,
+    output wire vblank,
 
     // Emulator Keyboard
     input wire [7:0] emu_kbd_data,
@@ -72,8 +74,8 @@ module sushic500_top (
         .vsync(vsync),
         .hs_n(),               // Unused active-low sync
         .fs_n(),               // Unused active-low sync
-        .hblank(),             // Unused
-        .vblank(),             // Unused
+        .hblank(hblank),
+        .vblank(vblank),
         
         // Direct RGB outputs
         .red(vga_r),
