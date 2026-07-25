@@ -76,6 +76,7 @@ jobs:
             mingw-w64-x86_64-SDL2
             mingw-w64-x86_64-python
             make
+            unzip
 
       # cc65 isn't packaged for MSYS2/MinGW64, so grab the official prebuilt
       # Windows snapshot instead and put it on PATH for the rest of the job.
