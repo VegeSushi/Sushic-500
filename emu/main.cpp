@@ -58,6 +58,14 @@ int main(int argc, char** argv) {
     SDL_Texture* texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, TEX_W, TEX_H);
     uint32_t* framebuffer = new uint32_t[TEX_W * TEX_H];
     
+    // Lines between vsync rising edge (mc6847.v: V2_FRONT_PORCH = 2) and the
+    // start of the visible border/video area (mc6847.v: V2_BACK_PORCH = 16).
+    // vsync and hsync share the same line-counter pipeline, so resetting off
+    // vsync (rather than vblank, which lags by a line or so) keeps the count
+    // accurate. If the picture still drifts a line or two, nudge PY_FUDGE.
+    const int PY_START_OFFSET = 16 - 2; // = 14
+    const int PY_FUDGE = 0;             // adjust by +/-1 if still off slightly
+
     int px = 0, py = 0;
     uint8_t prev_hsync = 0, prev_vsync = 0;
 
@@ -79,6 +87,7 @@ int main(int argc, char** argv) {
                     char key = e.key.keysym.sym;
                     if (key >= 'a' && key <= 'z') key -= 32; 
                     if (e.key.keysym.sym == SDLK_RETURN) key = 0x0D;
+                    if (e.key.keysym.sym == SDLK_BACKSPACE) key = 0x08;
 
                     top->emu_kbd_data = key; 
                     top->emu_kbd_ready = 1; 
@@ -95,7 +104,7 @@ int main(int argc, char** argv) {
 
         // 1. Plot Pixels (active display = not in hblank/vblank)
         if (!top->hblank && !top->vblank) {
-            if (px < TEX_W && py < TEX_H) {
+            if (px < TEX_W && py >= 0 && py < TEX_H) {
                 // The Verilog module outputs 4-bit color (0-15).
                 // Multiply by 17 (<< 4 | bitwise OR) to scale to 8-bit color (0-255).
                 uint8_t r = (top->vga_r << 4) | top->vga_r;
@@ -112,9 +121,17 @@ int main(int argc, char** argv) {
             px = 0; 
             py++; 
         }
-        
+
         if (top->vsync == 1 && prev_vsync == 0) { 
-            py = 0;
+            // Reset the line counter here, pre-loaded with the known gap
+            // (in lines) between vsync and the start of visible video.
+            // The blanking-interval hsyncs that follow count py back up
+            // to 0 exactly when active video starts, keeping it aligned
+            // with the same pipeline hsync uses -- unlike resetting on
+            // vblank's edge, which lags by a line or so and left a
+            // residual shift.
+            py = -(PY_START_OFFSET + PY_FUDGE);
+
             SDL_UpdateTexture(texture, NULL, framebuffer, TEX_W * sizeof(uint32_t));
             SDL_RenderClear(renderer);
             SDL_RenderCopy(renderer, texture, NULL, NULL); // Stretches TEX_W/TEX_H to 640x480
@@ -124,8 +141,8 @@ int main(int argc, char** argv) {
             memset(framebuffer, 0, TEX_W * TEX_H * sizeof(uint32_t));
         }
 
-        prev_hsync = top->hsync;
-        prev_vsync = top->vsync;
+        prev_hsync  = top->hsync;
+        prev_vsync  = top->vsync;
 
         top->clk_27mhz = 0; 
         top->eval();
