@@ -16,7 +16,7 @@ PRINT_LOOP:
     JMP PRINT_LOOP        
 
 DONE:
-    RTS                   
+    JMP DONE
 
 HELLO_MSG:
     .asciiz "HELLO WORLD FROM THE SUSHIC-500 CARTRIDGE!"

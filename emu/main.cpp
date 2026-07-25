@@ -6,8 +6,8 @@
 #include "verilated.h"
 
 // MC6847 NTSC Approximate Resolution
-const int TEX_W = 320;
-const int TEX_H = 262;
+const int TEX_W = 320;   // or keep 320, negligible
+const int TEX_H = 490; 
 
 bool load_cartridge(const char* filepath) {
     std::ifstream bin_file(filepath, std::ios::binary);
@@ -67,7 +67,7 @@ int main(int argc, char** argv) {
     const int PY_FUDGE = 0;             // adjust by +/-1 if still off slightly
 
     int px = 0, py = 0;
-    uint8_t prev_hsync = 0, prev_vsync = 0;
+    uint8_t prev_hsync = 0, prev_vsync = 0, prev_vblank = 1;
 
     top->reset_btn = 0; 
     top->clk_27mhz = 0; 
@@ -117,32 +117,28 @@ int main(int argc, char** argv) {
         }
 
         // 2. Handle Sync Pulses
-        if (top->hsync == 1 && prev_hsync == 0) { 
-            px = 0; 
-            py++; 
+        if (top->hsync == 1 && prev_hsync == 0) {
+            px = 0;
+            py++;
         }
 
-        if (top->vsync == 1 && prev_vsync == 0) { 
-            // Reset the line counter here, pre-loaded with the known gap
-            // (in lines) between vsync and the start of visible video.
-            // The blanking-interval hsyncs that follow count py back up
-            // to 0 exactly when active video starts, keeping it aligned
-            // with the same pipeline hsync uses -- unlike resetting on
-            // vblank's edge, which lags by a line or so and left a
-            // residual shift.
-            py = -(PY_START_OFFSET + PY_FUDGE);
+        // Reset py exactly when active video starts (vblank falling edge),
+        // not from a guessed vsync-to-active-video line offset.
+        if (top->vblank == 0 && prev_vblank == 1) {
+            py = 0;
+        }
 
+        if (top->vsync == 1 && prev_vsync == 0) {
             SDL_UpdateTexture(texture, NULL, framebuffer, TEX_W * sizeof(uint32_t));
             SDL_RenderClear(renderer);
-            SDL_RenderCopy(renderer, texture, NULL, NULL); // Stretches TEX_W/TEX_H to 640x480
+            SDL_RenderCopy(renderer, texture, NULL, NULL);
             SDL_RenderPresent(renderer);
-            
-            // Clear buffer to black for the next frame
             memset(framebuffer, 0, TEX_W * TEX_H * sizeof(uint32_t));
         }
 
         prev_hsync  = top->hsync;
         prev_vsync  = top->vsync;
+        prev_vblank = top->vblank;
 
         top->clk_27mhz = 0; 
         top->eval();
