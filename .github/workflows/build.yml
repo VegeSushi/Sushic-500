@@ -89,7 +89,7 @@ jobs:
           unzip -q /tmp/cc65.zip -d /c/tools/cc65
 
           # Don't assume the internal folder layout (it has changed between
-          # snapshot builds before) - just find wherever ca65.exe landed.
+          # snapshot builds before) - just find wherever the .exe's landed.
           CA65_DIR="$(dirname "$(find /c/tools/cc65 -iname 'ca65.exe' | head -n1)")"
           if [ -z "$CA65_DIR" ]; then
             echo "::error::Could not locate ca65.exe after extracting cc65 snapshot"
@@ -97,7 +97,15 @@ jobs:
             exit 1
           fi
           echo "Found cc65 tools in: $CA65_DIR"
-          echo "$CA65_DIR" >> "$GITHUB_PATH"
+
+          # $GITHUB_PATH doesn't reliably carry over between separate
+          # `msys2 {0}` shell invocations (MSYS2 re-derives its own PATH on
+          # each shell start), so install straight into /mingw64/bin instead,
+          # which is already on PATH for every subsequent msys2 step.
+          # (Only the binaries are needed - the Makefile uses `-t none` and
+          # supplies its own sw/link.ld / sw/cart_link.ld, not cc65's
+          # built-in target configs/headers.)
+          cp "$CA65_DIR"/*.exe /mingw64/bin/
 
       - name: Build
         run: make all
