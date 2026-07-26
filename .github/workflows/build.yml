@@ -45,12 +45,12 @@ jobs:
       - name: Stage package
         run: |
           mkdir -p dist/sushic500-linux-x86_64
-          mkdir -p dist/sushic500-libretro
+          mkdir -p dist/sushic500-libretro-x86_64
           mkdir -p dist/sushic500-roms
           # Standalone Linux Emulator
           cp build/sushic500-emu dist/sushic500-linux-x86_64/
           # Libretro Core
-          cp build/sushic500_libretro.so dist/sushic500-libretro/
+          cp build/sushic500_libretro.so dist/sushic500-libretro-x86_64/
           # ROM files (hex)
           cp build/bios.hex build/charset.hex dist/sushic500-roms/ 2>/dev/null || true
 
@@ -61,8 +61,8 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: sushic500-libretro
-          path: dist/sushic500-libretro
+          name: sushic500-libretro-x86_64
+          path: dist/sushic500-libretro-x86_64
 
       - uses: actions/upload-artifact@v4
         with:
