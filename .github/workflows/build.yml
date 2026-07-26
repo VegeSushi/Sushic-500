@@ -47,7 +47,6 @@ jobs:
           mkdir -p dist/sushic500-linux-x86_64
           cp build/sushic500-emu dist/sushic500-linux-x86_64/
           cp build/bios.hex build/charset.hex dist/sushic500-linux-x86_64/ 2>/dev/null || true
-          cp build/hello.bin dist/sushic500-linux-x86_64/hello_cart.bin 2>/dev/null || true
 
       - uses: actions/upload-artifact@v4
         with:
