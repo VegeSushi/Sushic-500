@@ -176,7 +176,13 @@ jobs:
           submodules: recursive
 
       - name: Build
-        run: make all
+        run: |
+          # Add Homebrew's base include directory to the compiler's search path
+          # so that `#include <SDL2/SDL.h>` resolves correctly.
+          export CPLUS_INCLUDE_PATH="$(brew --prefix)/include"
+          export C_INCLUDE_PATH="$(brew --prefix)/include"
+          make all
+
 
       - name: Stage package
         run: |
