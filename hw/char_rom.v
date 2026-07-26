@@ -6,7 +6,7 @@ module char_rom (
     reg [7:0] rom [0:2047];   // 128 possible char codes x 16 row-slots each
 
     initial begin
-        $readmemh("build/charset.hex", rom);
+        $readmemh("charset.hex", rom);
     end
 
     always @(posedge clk) begin

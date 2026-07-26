@@ -21,7 +21,7 @@ bool load_cartridge(const std::string& filepath) {
     std::ifstream bin_file(filepath, std::ios::binary);
     if (!bin_file) return false;
 
-    std::ofstream hex_file("build/cart.hex");
+    std::ofstream hex_file("cart.hex");
     char byte;
     int count = 0;
 
@@ -39,7 +39,7 @@ bool load_cartridge(const std::string& filepath) {
 }
 
 void write_empty_cartridge() {
-    std::ofstream hex_file("build/cart.hex");
+    std::ofstream hex_file("cart.hex");
     for (int i = 0; i < 16384; i++) hex_file << "EA\n";
 }
 

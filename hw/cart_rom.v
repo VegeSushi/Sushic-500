@@ -6,7 +6,7 @@ module cart_rom (
     reg [7:0] rom [0:16383];
     
     initial begin
-        $readmemh("build/cart.hex", rom);
+        $readmemh("cart.hex", rom);
     end
     
     always @(posedge clk) begin
