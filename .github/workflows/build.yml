@@ -47,13 +47,10 @@ jobs:
           mkdir -p dist/sushic500-linux-x86_64
           mkdir -p dist/sushic500-libretro
           mkdir -p dist/sushic500-roms
-          
           # Standalone Linux Emulator
           cp build/sushic500-emu dist/sushic500-linux-x86_64/
-          
           # Libretro Core
           cp build/sushic500_libretro.so dist/sushic500-libretro/
-          
           # ROM files (hex)
           cp build/bios.hex build/charset.hex dist/sushic500-roms/ 2>/dev/null || true
 
@@ -72,10 +69,102 @@ jobs:
           name: sushic500-roms
           path: dist/sushic500-roms
 
+  build-libretro-arm:
+    name: Libretro core (Arch, ARM64/aarch64)
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    steps:
+      - name: Install toolchain
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm base-devel git verilator curl python vim \
+            aarch64-linux-gnu-gcc aarch64-linux-gnu-binutils
+
+      - name: Trust the workspace directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Check out repo
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # cc65 is a host-side tool (assembles/links the 6502 BIOS/charset that
+      # get embedded as .hex), so it stays native x86_64 even here.
+      - name: Build cc65 from source (host tool)
+        run: |
+          git clone --depth 1 https://github.com/cc65/cc65.git /tmp/cc65
+          make -C /tmp/cc65 -j"$(nproc)"
+          make -C /tmp/cc65 PREFIX=/usr/local install
+
+      - name: Build BIOS/charset hex (host, native)
+        run: make rom charset
+
+      - name: Build libretro core (cross to aarch64)
+        run: |
+          export CC=aarch64-linux-gnu-gcc
+          export CXX=aarch64-linux-gnu-g++
+          make libretro CC=$CC CXX=$CXX
+
+      - name: Stage package
+        run: |
+          mkdir -p dist/sushic500-libretro-arm64
+          cp build/sushic500_libretro.so dist/sushic500-libretro-arm64/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sushic500-libretro-arm64
+          path: dist/sushic500-libretro-arm64
+
+  build-libretro-riscv:
+    name: Libretro core (Arch, RISC-V64)
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    steps:
+      - name: Install toolchain
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm base-devel git verilator curl python vim \
+            riscv64-linux-gnu-gcc riscv64-linux-gnu-binutils
+
+      - name: Trust the workspace directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Check out repo
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build cc65 from source (host tool)
+        run: |
+          git clone --depth 1 https://github.com/cc65/cc65.git /tmp/cc65
+          make -C /tmp/cc65 -j"$(nproc)"
+          make -C /tmp/cc65 PREFIX=/usr/local install
+
+      - name: Build BIOS/charset hex (host, native)
+        run: make rom charset
+
+      - name: Build libretro core (cross to riscv64)
+        run: |
+          export CC=riscv64-linux-gnu-gcc
+          export CXX=riscv64-linux-gnu-g++
+          make libretro CC=$CC CXX=$CXX
+
+      - name: Stage package
+        run: |
+          mkdir -p dist/sushic500-libretro-riscv64
+          cp build/sushic500_libretro.so dist/sushic500-libretro-riscv64/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sushic500-libretro-riscv64
+          path: dist/sushic500-libretro-riscv64
+
   release:
     name: Attach binaries to release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [ build-linux ]
+    needs: [ build-linux, build-libretro-arm, build-libretro-riscv ]
     runs-on: ubuntu-latest
     permissions:
       contents: write
