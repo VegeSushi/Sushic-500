@@ -161,10 +161,46 @@ jobs:
           name: sushic500-libretro-riscv64
           path: dist/sushic500-libretro-riscv64
 
+  build-macos:
+    name: macOS (Apple Silicon)
+    runs-on: macos-latest
+    steps:
+      - name: Install toolchain
+        run: |
+          brew update
+          brew install verilator sdl2 python cc65
+
+      - name: Check out repo
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build
+        run: make all
+
+      - name: Stage package
+        run: |
+          mkdir -p dist/sushic500-macos
+          mkdir -p dist/sushic500-libretro-macos
+          # Standalone macOS Emulator
+          cp build/sushic500-emu dist/sushic500-macos/
+          # Libretro Core (copying both potential extensions depending on your Makefile config)
+          cp build/sushic500_libretro.* dist/sushic500-libretro-macos/ 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sushic500-macos
+          path: dist/sushic500-macos
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sushic500-libretro-macos
+          path: dist/sushic500-libretro-macos
+
   release:
     name: Attach binaries to release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [ build-linux, build-libretro-arm, build-libretro-riscv ]
+    needs: [ build-linux, build-libretro-arm, build-libretro-riscv, build-macos ]
     runs-on: ubuntu-latest
     permissions:
       contents: write
