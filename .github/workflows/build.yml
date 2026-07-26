@@ -9,6 +9,10 @@ on:
   workflow_dispatch: {}
 
 jobs:
+  # ---------------------------------------------------------------------
+  # Native x86_64 build: standalone emulator + libretro core + ROM hex
+  # files, all built natively inside an Arch Linux container.
+  # ---------------------------------------------------------------------
   build-linux:
     name: Linux (Arch, x86_64)
     runs-on: ubuntu-latest
@@ -18,7 +22,7 @@ jobs:
       - name: Install toolchain
         run: |
           pacman -Syu --noconfirm
-          pacman -S --noconfirm base-devel git verilator sdl2 python vim
+          pacman -S --noconfirm base-devel git verilator sdl2 curl python vim
 
       # The container runs as root while the checkout dir is owned by the
       # runner's host user, which git now refuses to touch by default.
@@ -39,7 +43,7 @@ jobs:
           make -C /tmp/cc65 -j"$(nproc)"
           make -C /tmp/cc65 PREFIX=/usr/local install
 
-      - name: Build
+      - name: Build everything (emu + libretro + roms)
         run: make all
 
       - name: Stage package
@@ -69,25 +73,38 @@ jobs:
           name: sushic500-roms
           path: dist/sushic500-roms
 
-  build-libretro-arm:
-    name: Libretro core (Arch, ARM64/aarch64)
+  # ---------------------------------------------------------------------
+  # ARM64/aarch64 build: standalone emulator + libretro core, cross-
+  # compiled together in one job, mirroring build-linux above.
+  #
+  # Runs on plain ubuntu-latest (no Arch container) because Ubuntu's
+  # ports.ubuntu.com repos carry a prebuilt libsdl2-dev:arm64 package,
+  # which Arch's official repos do not provide for foreign arches.
+  # Verilator, cc65, and the ROM/charset generation all stay native
+  # x86_64 host tools; only the final emu/libretro compile+link is
+  # cross-compiled.
+  # ---------------------------------------------------------------------
+  build-arm64:
+    name: Linux (Ubuntu cross, ARM64/aarch64)
     runs-on: ubuntu-latest
-    container:
-      image: archlinux:latest
     steps:
-      - name: Install toolchain
-        run: |
-          pacman -Syu --noconfirm
-          pacman -S --noconfirm base-devel git verilator curl python vim \
-            aarch64-linux-gnu-gcc aarch64-linux-gnu-binutils
-
-      - name: Trust the workspace directory
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-
       - name: Check out repo
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Enable arm64 architecture + ports repo
+        run: |
+          sudo dpkg --add-architecture arm64
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs) main universe" | sudo tee /etc/apt/sources.list.d/arm64-ports.list
+          sudo apt-get update
+
+      - name: Install native build tools + cross toolchain + target SDL2
+        run: |
+          sudo apt-get install -y \
+            build-essential verilator python3 xxd curl \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+            libsdl2-dev:arm64
 
       # cc65 is a host-side tool (assembles/links the 6502 BIOS/charset that
       # get embedded as .hex), so it stays native x86_64 even here.
@@ -95,76 +112,109 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/cc65/cc65.git /tmp/cc65
           make -C /tmp/cc65 -j"$(nproc)"
-          make -C /tmp/cc65 PREFIX=/usr/local install
+          sudo make -C /tmp/cc65 PREFIX=/usr/local install
 
       - name: Build BIOS/charset hex (host, native)
         run: make rom charset
 
-      - name: Build libretro core (cross to aarch64)
+      - name: Build emulator + libretro core (cross to aarch64)
         run: |
           export CC=aarch64-linux-gnu-gcc
           export CXX=aarch64-linux-gnu-g++
-          make libretro CC=$CC CXX=$CXX
+          export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
+          export PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig
+          make emu libretro CC=$CC CXX=$CXX
 
       - name: Stage package
         run: |
+          mkdir -p dist/sushic500-linux-arm64
           mkdir -p dist/sushic500-libretro-arm64
+          # Standalone Linux Emulator (arm64)
+          cp build/sushic500-emu dist/sushic500-linux-arm64/
+          # Libretro Core (arm64)
           cp build/sushic500_libretro.so dist/sushic500-libretro-arm64/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sushic500-linux-arm64
+          path: dist/sushic500-linux-arm64
 
       - uses: actions/upload-artifact@v4
         with:
           name: sushic500-libretro-arm64
           path: dist/sushic500-libretro-arm64
 
-  build-libretro-riscv:
-    name: Libretro core (Arch, RISC-V64)
+  # ---------------------------------------------------------------------
+  # RISC-V64 build: standalone emulator + libretro core, cross-compiled
+  # together in one job. Same approach as build-arm64 above, just
+  # targeting riscv64 instead.
+  # ---------------------------------------------------------------------
+  build-riscv64:
+    name: Linux (Ubuntu cross, RISC-V64)
     runs-on: ubuntu-latest
-    container:
-      image: archlinux:latest
     steps:
-      - name: Install toolchain
-        run: |
-          pacman -Syu --noconfirm
-          pacman -S --noconfirm base-devel git verilator curl python vim \
-            riscv64-linux-gnu-gcc riscv64-linux-gnu-binutils
-
-      - name: Trust the workspace directory
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-
       - name: Check out repo
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
+      - name: Enable riscv64 architecture + ports repo
+        run: |
+          sudo dpkg --add-architecture riscv64
+          echo "deb [arch=riscv64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs) main universe" | sudo tee /etc/apt/sources.list.d/riscv64-ports.list
+          sudo apt-get update
+
+      - name: Install native build tools + cross toolchain + target SDL2
+        run: |
+          sudo apt-get install -y \
+            build-essential verilator python3 xxd curl \
+            gcc-riscv64-linux-gnu g++-riscv64-linux-gnu \
+            libsdl2-dev:riscv64
+
       - name: Build cc65 from source (host tool)
         run: |
           git clone --depth 1 https://github.com/cc65/cc65.git /tmp/cc65
           make -C /tmp/cc65 -j"$(nproc)"
-          make -C /tmp/cc65 PREFIX=/usr/local install
+          sudo make -C /tmp/cc65 PREFIX=/usr/local install
 
       - name: Build BIOS/charset hex (host, native)
         run: make rom charset
 
-      - name: Build libretro core (cross to riscv64)
+      - name: Build emulator + libretro core (cross to riscv64)
         run: |
           export CC=riscv64-linux-gnu-gcc
           export CXX=riscv64-linux-gnu-g++
-          make libretro CC=$CC CXX=$CXX
+          export PKG_CONFIG_PATH=/usr/lib/riscv64-linux-gnu/pkgconfig
+          export PKG_CONFIG_LIBDIR=/usr/lib/riscv64-linux-gnu/pkgconfig
+          make emu libretro CC=$CC CXX=$CXX
 
       - name: Stage package
         run: |
+          mkdir -p dist/sushic500-linux-riscv64
           mkdir -p dist/sushic500-libretro-riscv64
+          # Standalone Linux Emulator (riscv64)
+          cp build/sushic500-emu dist/sushic500-linux-riscv64/
+          # Libretro Core (riscv64)
           cp build/sushic500_libretro.so dist/sushic500-libretro-riscv64/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sushic500-linux-riscv64
+          path: dist/sushic500-linux-riscv64
 
       - uses: actions/upload-artifact@v4
         with:
           name: sushic500-libretro-riscv64
           path: dist/sushic500-libretro-riscv64
 
+  # ---------------------------------------------------------------------
+  # Release: on tag pushes only, gather every platform's artifacts,
+  # zip each one, and attach them all to the GitHub Release.
+  # ---------------------------------------------------------------------
   release:
     name: Attach binaries to release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [ build-linux, build-libretro-arm, build-libretro-riscv ]
+    needs: [ build-linux, build-arm64, build-riscv64 ]
     runs-on: ubuntu-latest
     permissions:
       contents: write
