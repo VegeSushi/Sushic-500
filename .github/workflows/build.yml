@@ -55,8 +55,9 @@ jobs:
           cp build/sushic500-emu dist/sushic500-linux-x86_64/
           # Libretro Core
           cp build/sushic500_libretro.so dist/sushic500-libretro/
-          # ROM files (hex)
-          cp build/bios.hex build/charset.hex dist/sushic500-roms/ 2>/dev/null || true
+          # ROM files (hex) — kept separate from the emu/libretro artifacts
+          cp build/bios.hex dist/sushic500-roms/ 2>/dev/null || true
+          cp build/charset.hex dist/sushic500-roms/ 2>/dev/null || true
 
       - uses: actions/upload-artifact@v4
         with:
@@ -75,7 +76,10 @@ jobs:
 
   # ---------------------------------------------------------------------
   # ARM64/aarch64 build: standalone emulator + libretro core, cross-
-  # compiled together in one job, mirroring build-linux above.
+  # compiled together in one job, mirroring build-linux above. ROM hex
+  # files are architecture-independent, so they are NOT rebuilt or
+  # re-uploaded here — build-linux's sushic500-roms artifact is the
+  # single source of truth for those.
   #
   # Runs on plain ubuntu-latest (no Arch container) because Ubuntu's
   # ports.ubuntu.com repos carry a prebuilt libsdl2-dev:arm64 package,
@@ -96,7 +100,17 @@ jobs:
       - name: Enable arm64 architecture + ports repo
         run: |
           sudo dpkg --add-architecture arm64
+          # The runner's default mirrors (archive.ubuntu.com,
+          # security.ubuntu.com) only host amd64 packages. Once a
+          # foreign arch is added, apt will also try those same
+          # mirrors for it and 404 unless we pin the existing entries
+          # to amd64 explicitly.
+          sudo sed -i -E 's/^deb (\[.*\] )?http/deb [arch=amd64] http/' /etc/apt/sources.list
+          # ports.ubuntu.com is where arm64 (and riscv64) packages
+          # actually live.
           echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs) main universe" | sudo tee /etc/apt/sources.list.d/arm64-ports.list
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs)-updates main universe" | sudo tee -a /etc/apt/sources.list.d/arm64-ports.list
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs)-security main universe" | sudo tee -a /etc/apt/sources.list.d/arm64-ports.list
           sudo apt-get update
 
       - name: Install native build tools + cross toolchain + target SDL2
@@ -114,7 +128,7 @@ jobs:
           make -C /tmp/cc65 -j"$(nproc)"
           sudo make -C /tmp/cc65 PREFIX=/usr/local install
 
-      - name: Build BIOS/charset hex (host, native)
+      - name: Build BIOS/charset hex (host, native — required by emu/libretro targets)
         run: make rom charset
 
       - name: Build emulator + libretro core (cross to aarch64)
@@ -147,7 +161,8 @@ jobs:
   # ---------------------------------------------------------------------
   # RISC-V64 build: standalone emulator + libretro core, cross-compiled
   # together in one job. Same approach as build-arm64 above, just
-  # targeting riscv64 instead.
+  # targeting riscv64 instead. ROM hex files are likewise not rebuilt
+  # or re-uploaded here.
   # ---------------------------------------------------------------------
   build-riscv64:
     name: Linux (Ubuntu cross, RISC-V64)
@@ -161,7 +176,10 @@ jobs:
       - name: Enable riscv64 architecture + ports repo
         run: |
           sudo dpkg --add-architecture riscv64
+          sudo sed -i -E 's/^deb (\[.*\] )?http/deb [arch=amd64] http/' /etc/apt/sources.list
           echo "deb [arch=riscv64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs) main universe" | sudo tee /etc/apt/sources.list.d/riscv64-ports.list
+          echo "deb [arch=riscv64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs)-updates main universe" | sudo tee -a /etc/apt/sources.list.d/riscv64-ports.list
+          echo "deb [arch=riscv64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs)-security main universe" | sudo tee -a /etc/apt/sources.list.d/riscv64-ports.list
           sudo apt-get update
 
       - name: Install native build tools + cross toolchain + target SDL2
@@ -177,7 +195,7 @@ jobs:
           make -C /tmp/cc65 -j"$(nproc)"
           sudo make -C /tmp/cc65 PREFIX=/usr/local install
 
-      - name: Build BIOS/charset hex (host, native)
+      - name: Build BIOS/charset hex (host, native — required by emu/libretro targets)
         run: make rom charset
 
       - name: Build emulator + libretro core (cross to riscv64)
@@ -209,7 +227,8 @@ jobs:
 
   # ---------------------------------------------------------------------
   # Release: on tag pushes only, gather every platform's artifacts,
-  # zip each one, and attach them all to the GitHub Release.
+  # zip each one, and attach them all to the GitHub Release. The ROM
+  # hex files come only from build-linux, since they're arch-independent.
   # ---------------------------------------------------------------------
   release:
     name: Attach binaries to release
