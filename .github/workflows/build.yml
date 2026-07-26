@@ -9,10 +9,6 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  # ---------------------------------------------------------------------
-  # Native x86_64 build: standalone emulator + libretro core + ROM hex
-  # files, all built natively inside an Arch Linux container.
-  # ---------------------------------------------------------------------
   build-linux:
     name: Linux (Arch, x86_64)
     runs-on: ubuntu-latest
@@ -22,7 +18,7 @@ jobs:
       - name: Install toolchain
         run: |
           pacman -Syu --noconfirm
-          pacman -S --noconfirm base-devel git verilator sdl2 curl python vim
+          pacman -S --noconfirm base-devel git verilator sdl2 python vim
 
       # The container runs as root while the checkout dir is owned by the
       # runner's host user, which git now refuses to touch by default.
@@ -43,7 +39,7 @@ jobs:
           make -C /tmp/cc65 -j"$(nproc)"
           make -C /tmp/cc65 PREFIX=/usr/local install
 
-      - name: Build everything (emu + libretro + roms)
+      - name: Build
         run: make all
 
       - name: Stage package
@@ -55,9 +51,8 @@ jobs:
           cp build/sushic500-emu dist/sushic500-linux-x86_64/
           # Libretro Core
           cp build/sushic500_libretro.so dist/sushic500-libretro/
-          # ROM files (hex) — kept separate from the emu/libretro artifacts
-          cp build/bios.hex dist/sushic500-roms/ 2>/dev/null || true
-          cp build/charset.hex dist/sushic500-roms/ 2>/dev/null || true
+          # ROM files (hex)
+          cp build/bios.hex build/charset.hex dist/sushic500-roms/ 2>/dev/null || true
 
       - uses: actions/upload-artifact@v4
         with:
@@ -74,22 +69,8 @@ jobs:
           name: sushic500-roms
           path: dist/sushic500-roms
 
-  # ---------------------------------------------------------------------
-  # ARM64/aarch64 build: standalone emulator + libretro core, cross-
-  # compiled together in one job, mirroring build-linux above. ROM hex
-  # files are architecture-independent, so they are NOT rebuilt or
-  # re-uploaded here — build-linux's sushic500-roms artifact is the
-  # single source of truth for those.
-  #
-  # Runs on plain ubuntu-latest (no Arch container) because Ubuntu's
-  # ports.ubuntu.com repos carry a prebuilt libsdl2-dev:arm64 package,
-  # which Arch's official repos do not provide for foreign arches.
-  # Verilator, cc65, and the ROM/charset generation all stay native
-  # x86_64 host tools; only the final emu/libretro compile+link is
-  # cross-compiled.
-  # ---------------------------------------------------------------------
-  build-arm64:
-    name: Linux (Arch cross, ARM64/aarch64)
+  build-libretro-arm:
+    name: Libretro core (Arch, ARM64/aarch64)
     runs-on: ubuntu-latest
     container:
       image: archlinux:latest
@@ -97,7 +78,7 @@ jobs:
       - name: Install toolchain
         run: |
           pacman -Syu --noconfirm
-          pacman -S --noconfirm base-devel git verilator curl python vim cmake \
+          pacman -S --noconfirm base-devel git verilator curl python vim \
             aarch64-linux-gnu-gcc aarch64-linux-gnu-binutils
 
       - name: Trust the workspace directory
@@ -116,57 +97,27 @@ jobs:
           make -C /tmp/cc65 -j"$(nproc)"
           make -C /tmp/cc65 PREFIX=/usr/local install
 
-      # Arch doesn't ship a prebuilt cross-SDL2 package, so cross-compile
-      # SDL2 itself against the aarch64 toolchain and install it into a
-      # local sysroot that pkg-config can point at.
-      - name: Build SDL2 from source (cross to aarch64)
-        run: |
-          git clone --depth 1 --branch release-2.30.0 https://github.com/libsdl-org/SDL.git /tmp/sdl2
-          mkdir -p /tmp/sdl2/build
-          cd /tmp/sdl2/build
-          cmake .. \
-            -DCMAKE_SYSTEM_NAME=Linux \
-            -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
-            -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
-            -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
-            -DCMAKE_INSTALL_PREFIX=/opt/sysroot-arm64 \
-            -DSDL_STATIC=ON -DSDL_SHARED=ON
-          make -j"$(nproc)"
-          make install
-
-      - name: Build BIOS/charset hex (host, native — required by emu/libretro targets)
+      - name: Build BIOS/charset hex (host, native)
         run: make rom charset
 
-      - name: Build emulator + libretro core (cross to aarch64)
+      - name: Build libretro core (cross to aarch64)
         run: |
           export CC=aarch64-linux-gnu-gcc
           export CXX=aarch64-linux-gnu-g++
-          export PKG_CONFIG_PATH=/opt/sysroot-arm64/lib/pkgconfig
-          export PKG_CONFIG_LIBDIR=/opt/sysroot-arm64/lib/pkgconfig
-          export PKG_CONFIG_SYSROOT_DIR=/opt/sysroot-arm64
-          make emu libretro CC=$CC CXX=$CXX
+          make libretro CC=$CC CXX=$CXX
 
       - name: Stage package
         run: |
-          mkdir -p dist/sushic500-linux-arm64
           mkdir -p dist/sushic500-libretro-arm64
-          # Standalone Linux Emulator (arm64)
-          cp build/sushic500-emu dist/sushic500-linux-arm64/
-          # Libretro Core (arm64)
           cp build/sushic500_libretro.so dist/sushic500-libretro-arm64/
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sushic500-linux-arm64
-          path: dist/sushic500-linux-arm64
 
       - uses: actions/upload-artifact@v4
         with:
           name: sushic500-libretro-arm64
           path: dist/sushic500-libretro-arm64
 
-  build-riscv64:
-    name: Linux (Arch cross, RISC-V64)
+  build-libretro-riscv:
+    name: Libretro core (Arch, RISC-V64)
     runs-on: ubuntu-latest
     container:
       image: archlinux:latest
@@ -174,7 +125,7 @@ jobs:
       - name: Install toolchain
         run: |
           pacman -Syu --noconfirm
-          pacman -S --noconfirm base-devel git verilator curl python vim cmake \
+          pacman -S --noconfirm base-devel git verilator curl python vim \
             riscv64-linux-gnu-gcc riscv64-linux-gnu-binutils
 
       - name: Trust the workspace directory
@@ -191,61 +142,29 @@ jobs:
           make -C /tmp/cc65 -j"$(nproc)"
           make -C /tmp/cc65 PREFIX=/usr/local install
 
-      - name: Build SDL2 from source (cross to riscv64)
-        run: |
-          git clone --depth 1 --branch release-2.30.0 https://github.com/libsdl-org/SDL.git /tmp/sdl2
-          mkdir -p /tmp/sdl2/build
-          cd /tmp/sdl2/build
-          cmake .. \
-            -DCMAKE_SYSTEM_NAME=Linux \
-            -DCMAKE_SYSTEM_PROCESSOR=riscv64 \
-            -DCMAKE_C_COMPILER=riscv64-linux-gnu-gcc \
-            -DCMAKE_CXX_COMPILER=riscv64-linux-gnu-g++ \
-            -DCMAKE_INSTALL_PREFIX=/opt/sysroot-riscv64 \
-            -DSDL_STATIC=ON -DSDL_SHARED=ON
-          make -j"$(nproc)"
-          make install
-
-      - name: Build BIOS/charset hex (host, native — required by emu/libretro targets)
+      - name: Build BIOS/charset hex (host, native)
         run: make rom charset
 
-      - name: Build emulator + libretro core (cross to riscv64)
+      - name: Build libretro core (cross to riscv64)
         run: |
           export CC=riscv64-linux-gnu-gcc
           export CXX=riscv64-linux-gnu-g++
-          export PKG_CONFIG_PATH=/opt/sysroot-riscv64/lib/pkgconfig
-          export PKG_CONFIG_LIBDIR=/opt/sysroot-riscv64/lib/pkgconfig
-          export PKG_CONFIG_SYSROOT_DIR=/opt/sysroot-riscv64
-          make emu libretro CC=$CC CXX=$CXX
+          make libretro CC=$CC CXX=$CXX
 
       - name: Stage package
         run: |
-          mkdir -p dist/sushic500-linux-riscv64
           mkdir -p dist/sushic500-libretro-riscv64
-          # Standalone Linux Emulator (riscv64)
-          cp build/sushic500-emu dist/sushic500-linux-riscv64/
-          # Libretro Core (riscv64)
           cp build/sushic500_libretro.so dist/sushic500-libretro-riscv64/
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sushic500-linux-riscv64
-          path: dist/sushic500-linux-riscv64
 
       - uses: actions/upload-artifact@v4
         with:
           name: sushic500-libretro-riscv64
           path: dist/sushic500-libretro-riscv64
 
-  # ---------------------------------------------------------------------
-  # Release: on tag pushes only, gather every platform's artifacts,
-  # zip each one, and attach them all to the GitHub Release. The ROM
-  # hex files come only from build-linux, since they're arch-independent.
-  # ---------------------------------------------------------------------
   release:
     name: Attach binaries to release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [ build-linux, build-arm64, build-riscv64 ]
+    needs: [ build-linux, build-libretro-arm, build-libretro-riscv ]
     runs-on: ubuntu-latest
     permissions:
       contents: write
