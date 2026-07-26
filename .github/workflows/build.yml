@@ -181,7 +181,7 @@ jobs:
           # so that `#include <SDL2/SDL.h>` resolves correctly.
           export CPLUS_INCLUDE_PATH="$(brew --prefix)/include"
           export C_INCLUDE_PATH="$(brew --prefix)/include"
-          make all
+          make emu
 
 
       - name: Stage package
