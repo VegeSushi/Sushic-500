@@ -89,36 +89,24 @@ jobs:
   # cross-compiled.
   # ---------------------------------------------------------------------
   build-arm64:
-    name: Linux (Ubuntu cross, ARM64/aarch64)
+    name: Linux (Arch cross, ARM64/aarch64)
     runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
     steps:
+      - name: Install toolchain
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm base-devel git verilator curl python vim cmake \
+            aarch64-linux-gnu-gcc aarch64-linux-gnu-binutils
+
+      - name: Trust the workspace directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - name: Check out repo
         uses: actions/checkout@v4
         with:
           submodules: recursive
-
-      - name: Enable arm64 architecture + ports repo
-        run: |
-          sudo dpkg --add-architecture arm64
-          # The runner's default mirrors (archive.ubuntu.com,
-          # security.ubuntu.com) only host amd64 packages. Once a
-          # foreign arch is added, apt will also try those same
-          # mirrors for it and 404 unless we pin the existing entries
-          # to amd64 explicitly.
-          sudo sed -i -E 's/^deb (\[.*\] )?http/deb [arch=amd64] http/' /etc/apt/sources.list
-          # ports.ubuntu.com is where arm64 (and riscv64) packages
-          # actually live.
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs) main universe" | sudo tee /etc/apt/sources.list.d/arm64-ports.list
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs)-updates main universe" | sudo tee -a /etc/apt/sources.list.d/arm64-ports.list
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs)-security main universe" | sudo tee -a /etc/apt/sources.list.d/arm64-ports.list
-          sudo apt-get update
-
-      - name: Install native build tools + cross toolchain + target SDL2
-        run: |
-          sudo apt-get install -y \
-            build-essential verilator python3 xxd curl \
-            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-            libsdl2-dev:arm64
 
       # cc65 is a host-side tool (assembles/links the 6502 BIOS/charset that
       # get embedded as .hex), so it stays native x86_64 even here.
@@ -126,7 +114,25 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/cc65/cc65.git /tmp/cc65
           make -C /tmp/cc65 -j"$(nproc)"
-          sudo make -C /tmp/cc65 PREFIX=/usr/local install
+          make -C /tmp/cc65 PREFIX=/usr/local install
+
+      # Arch doesn't ship a prebuilt cross-SDL2 package, so cross-compile
+      # SDL2 itself against the aarch64 toolchain and install it into a
+      # local sysroot that pkg-config can point at.
+      - name: Build SDL2 from source (cross to aarch64)
+        run: |
+          git clone --depth 1 --branch release-2.30.0 https://github.com/libsdl-org/SDL.git /tmp/sdl2
+          mkdir -p /tmp/sdl2/build
+          cd /tmp/sdl2/build
+          cmake .. \
+            -DCMAKE_SYSTEM_NAME=Linux \
+            -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+            -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+            -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+            -DCMAKE_INSTALL_PREFIX=/opt/sysroot-arm64 \
+            -DSDL_STATIC=ON -DSDL_SHARED=ON
+          make -j"$(nproc)"
+          make install
 
       - name: Build BIOS/charset hex (host, native — required by emu/libretro targets)
         run: make rom charset
@@ -135,8 +141,9 @@ jobs:
         run: |
           export CC=aarch64-linux-gnu-gcc
           export CXX=aarch64-linux-gnu-g++
-          export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
-          export PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig
+          export PKG_CONFIG_PATH=/opt/sysroot-arm64/lib/pkgconfig
+          export PKG_CONFIG_LIBDIR=/opt/sysroot-arm64/lib/pkgconfig
+          export PKG_CONFIG_SYSROOT_DIR=/opt/sysroot-arm64
           make emu libretro CC=$CC CXX=$CXX
 
       - name: Stage package
@@ -158,42 +165,46 @@ jobs:
           name: sushic500-libretro-arm64
           path: dist/sushic500-libretro-arm64
 
-  # ---------------------------------------------------------------------
-  # RISC-V64 build: standalone emulator + libretro core, cross-compiled
-  # together in one job. Same approach as build-arm64 above, just
-  # targeting riscv64 instead. ROM hex files are likewise not rebuilt
-  # or re-uploaded here.
-  # ---------------------------------------------------------------------
   build-riscv64:
-    name: Linux (Ubuntu cross, RISC-V64)
+    name: Linux (Arch cross, RISC-V64)
     runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
     steps:
+      - name: Install toolchain
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm base-devel git verilator curl python vim cmake \
+            riscv64-linux-gnu-gcc riscv64-linux-gnu-binutils
+
+      - name: Trust the workspace directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - name: Check out repo
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Enable riscv64 architecture + ports repo
-        run: |
-          sudo dpkg --add-architecture riscv64
-          sudo sed -i -E 's/^deb (\[.*\] )?http/deb [arch=amd64] http/' /etc/apt/sources.list
-          echo "deb [arch=riscv64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs) main universe" | sudo tee /etc/apt/sources.list.d/riscv64-ports.list
-          echo "deb [arch=riscv64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs)-updates main universe" | sudo tee -a /etc/apt/sources.list.d/riscv64-ports.list
-          echo "deb [arch=riscv64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs)-security main universe" | sudo tee -a /etc/apt/sources.list.d/riscv64-ports.list
-          sudo apt-get update
-
-      - name: Install native build tools + cross toolchain + target SDL2
-        run: |
-          sudo apt-get install -y \
-            build-essential verilator python3 xxd curl \
-            gcc-riscv64-linux-gnu g++-riscv64-linux-gnu \
-            libsdl2-dev:riscv64
-
       - name: Build cc65 from source (host tool)
         run: |
           git clone --depth 1 https://github.com/cc65/cc65.git /tmp/cc65
           make -C /tmp/cc65 -j"$(nproc)"
-          sudo make -C /tmp/cc65 PREFIX=/usr/local install
+          make -C /tmp/cc65 PREFIX=/usr/local install
+
+      - name: Build SDL2 from source (cross to riscv64)
+        run: |
+          git clone --depth 1 --branch release-2.30.0 https://github.com/libsdl-org/SDL.git /tmp/sdl2
+          mkdir -p /tmp/sdl2/build
+          cd /tmp/sdl2/build
+          cmake .. \
+            -DCMAKE_SYSTEM_NAME=Linux \
+            -DCMAKE_SYSTEM_PROCESSOR=riscv64 \
+            -DCMAKE_C_COMPILER=riscv64-linux-gnu-gcc \
+            -DCMAKE_CXX_COMPILER=riscv64-linux-gnu-g++ \
+            -DCMAKE_INSTALL_PREFIX=/opt/sysroot-riscv64 \
+            -DSDL_STATIC=ON -DSDL_SHARED=ON
+          make -j"$(nproc)"
+          make install
 
       - name: Build BIOS/charset hex (host, native — required by emu/libretro targets)
         run: make rom charset
@@ -202,8 +213,9 @@ jobs:
         run: |
           export CC=riscv64-linux-gnu-gcc
           export CXX=riscv64-linux-gnu-g++
-          export PKG_CONFIG_PATH=/usr/lib/riscv64-linux-gnu/pkgconfig
-          export PKG_CONFIG_LIBDIR=/usr/lib/riscv64-linux-gnu/pkgconfig
+          export PKG_CONFIG_PATH=/opt/sysroot-riscv64/lib/pkgconfig
+          export PKG_CONFIG_LIBDIR=/opt/sysroot-riscv64/lib/pkgconfig
+          export PKG_CONFIG_SYSROOT_DIR=/opt/sysroot-riscv64
           make emu libretro CC=$CC CXX=$CXX
 
       - name: Stage package
