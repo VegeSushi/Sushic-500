@@ -18,9 +18,11 @@ VERILOG_SRCS = $(HW_DIR)/sushic500_top.v \
                $(EXT_DIR)/verilog-6502/cpu.v \
                $(EXT_DIR)/verilog-6502/ALU.v
 
-.PHONY: all rom cart charset emu clean
+VERILATOR_ROOT ?= /usr/share/verilator
 
-all: rom cart charset emu
+.PHONY: all rom cart charset emu clean libretro
+
+all: rom cart charset emu libretro
 
 # --- BIOS ROM ---
 rom: $(BUILD_DIR)/bios.hex
@@ -66,6 +68,32 @@ emu: $(BUILD_DIR)/bios.hex $(BUILD_DIR)/charset.hex
 		-LDFLAGS "$$(sdl2-config --libs)"
 	
 	cp $(BUILD_DIR)/verilator/Vsushic500_top $(BUILD_DIR)/sushic500-emu
+
+# --- LIBRETRO CORE ---
+libretro: $(BUILD_DIR)/bios.hex $(BUILD_DIR)/charset.hex
+	@mkdir -p $(BUILD_DIR)/libretro_obj
+	
+	# Fetch the libretro API header
+	curl -sL https://raw.githubusercontent.com/libretro/RetroArch/master/libretro-common/include/libretro.h -o $(BUILD_DIR)/libretro.h
+	
+	# Generate C++ model and pass -fPIC so it can be linked into a shared object
+	$(VERILATOR) -cc --build -j 4 \
+		-Wno-WIDTHEXPAND -Wno-WIDTHTRUNC \
+		-Wno-CASEX -Wno-CASEINCOMPLETE -Wno-UNOPTFLAT \
+		-CFLAGS "-fPIC" \
+		-Mdir $(BUILD_DIR)/libretro_obj \
+		-I$(HW_DIR) -I$(EXT_DIR)/verilog-6502 \
+		--top-module sushic500_top $(VERILOG_SRCS)
+		
+	# Compile as a dynamic shared library for RetroArch (.so)
+	$(CXX) -fPIC -shared -o $(BUILD_DIR)/sushic500_libretro.so \
+		libretro/core.cpp \
+		$(BUILD_DIR)/libretro_obj/Vsushic500_top__ALL.a \
+		$(VERILATOR_ROOT)/include/verilated.cpp \
+		$(VERILATOR_ROOT)/include/verilated_threads.cpp \
+		-I$(BUILD_DIR) -I$(BUILD_DIR)/libretro_obj \
+		-I$(HW_DIR) -I$(EXT_DIR)/verilog-6502 \
+		-I$(VERILATOR_ROOT)/include -I$(VERILATOR_ROOT)/include/vltstd
 
 clean:
 	rm -rf $(BUILD_DIR)
