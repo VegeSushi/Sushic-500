@@ -164,6 +164,75 @@ jobs:
           name: sushic500-macos
           path: dist/sushic500-macos
 
+  export-cpp-source:
+    name: Export C++ Source (For Native Android APK)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Verilator and toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y verilator python3
+          
+      - name: Check out repo
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Cache cc65
+        id: cache-cc65
+        uses: actions/cache@v4
+        with:
+          path: /opt/cc65
+          key: ubuntu-cc65-master
+
+      - name: Build cc65 from source
+        if: steps.cache-cc65.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 https://github.com/cc65/cc65.git /tmp/cc65
+          make -C /tmp/cc65 -j"$(nproc)"
+          sudo make -C /tmp/cc65 PREFIX=/opt/cc65 install
+
+      - name: Add cc65 to PATH
+        run: echo "/opt/cc65/bin" >> $GITHUB_PATH
+
+      - name: Build BIOS and Charset ROMs
+        run: make rom charset
+
+      - name: Generate C++ Model via Verilator
+        run: |
+          mkdir -p build/cpp_model
+          # Run Verilator to emit C++ source ONLY (-cc) without compiling (--build)
+          verilator -cc \
+            -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-CASEX -Wno-CASEINCOMPLETE -Wno-UNOPTFLAT \
+            -Mdir build/cpp_model \
+            -Ihw -Iext/verilog-6502 \
+            --top-module sushic500_top \
+            hw/sushic500_top.v hw/sys_ram.v hw/sys_rom.v hw/cart_rom.v hw/char_rom.v hw/mc6847.v ext/verilog-6502/cpu.v ext/verilog-6502/ALU.v
+          
+      - name: Stage C++ Source Package
+        run: |
+          mkdir -p dist/sushic500-cpp-source/model
+          mkdir -p dist/sushic500-cpp-source/verilator_runtime
+          mkdir -p dist/sushic500-cpp-source/src
+          mkdir -p dist/sushic500-cpp-source/assets
+          
+          # 1. The generated Verilator C++ classes
+          cp -r build/cpp_model/* dist/sushic500-cpp-source/model/
+          
+          # 2. The Verilator standard runtime (Required to compile the model in Android Studio)
+          cp -r /usr/share/verilator/include/* dist/sushic500-cpp-source/verilator_runtime/
+          
+          # 3. Your wrapper source code
+          cp -r emu libretro dist/sushic500-cpp-source/src/
+          
+          # 4. Built ROM files (to be placed in Android's assets/ folder)
+          cp build/bios.hex build/charset.hex dist/sushic500-cpp-source/assets/
+          
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sushic500-cpp-source
+          path: dist/sushic500-cpp-source
+
   release:
     name: Attach binaries to release
     if: startsWith(github.ref, 'refs/tags/v')
