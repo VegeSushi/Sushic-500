@@ -199,8 +199,20 @@ jobs:
       - name: Add cc65 to PATH
         run: echo "/opt/cc65/bin" >> $GITHUB_PATH
 
-      - name: Generate C++ Model and ROMs
-        run: make cpp-model
+      - name: Build BIOS and Charset ROMs
+        run: make rom charset
+
+      - name: Generate C++ Model via Verilator
+        run: |
+          mkdir -p build/cpp_model
+          
+          verilator -cc \
+            -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-CASEX -Wno-CASEINCOMPLETE -Wno-UNOPTFLAT \
+            -Wno-SIDEEFFECT -Wno-CASEOVERLAP \
+            -Mdir build/cpp_model \
+            -Ihw -Iext/verilog-6502 \
+            --top-module sushic500_top \
+            hw/sushic500_top.v hw/sys_ram.v hw/sys_rom.v hw/cart_rom.v hw/char_rom.v hw/mc6847.v ext/verilog-6502/cpu.v ext/verilog-6502/ALU.v
           
       - name: Stage C++ Source Package
         run: |
