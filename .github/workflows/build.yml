@@ -52,7 +52,7 @@ jobs:
           mkdir -p dist/sushic500-linux-x86_64
           mkdir -p dist/sushic500-libretro-x86_64
           mkdir -p dist/sushic500-roms
-          
+
           cp build/sushic500-emu dist/sushic500-linux-x86_64/
           cp build/sushic500_libretro.so dist/sushic500-libretro-x86_64/
           cp build/bios.hex build/charset.hex dist/sushic500-roms/ 2>/dev/null || true
@@ -205,7 +205,7 @@ jobs:
       - name: Generate C++ Model via Verilator
         run: |
           mkdir -p build/cpp_model
-          
+
           verilator -cc \
             -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-CASEX -Wno-CASEINCOMPLETE -Wno-UNOPTFLAT \
             -Wno-SIDEEFFECT -Wno-CASEOVERLAP \
@@ -213,7 +213,7 @@ jobs:
             -Ihw -Iext/verilog-6502 \
             --top-module sushic500_top \
             hw/sushic500_top.v hw/sys_ram.v hw/sys_rom.v hw/cart_rom.v hw/char_rom.v hw/mc6847.v ext/verilog-6502/cpu.v ext/verilog-6502/ALU.v
-          
+
       - name: Stage C++ Source Package
         run: |
           mkdir -p dist/sushic500-cpp-source/model
@@ -233,19 +233,6 @@ jobs:
           # 4. Built ROM files
           cp build/bios.hex build/charset.hex dist/sushic500-cpp-source/assets/
 
-      - name: Patch Verilator runtime for Android (Bionic has no pthread_getaffinity_np)
-        run: |
-          RUNTIME_HDR="dist/sushic500-cpp-source/verilator_runtime/verilatedos_c.h"
-          if grep -q '__TERMUX__' "$RUNTIME_HDR"; then
-            sed -i \
-              's/#ifdef __TERMUX__/#if defined(__TERMUX__) || defined(__ANDROID__)/' \
-              "$RUNTIME_HDR"
-            echo "Patched $RUNTIME_HDR for Android/Bionic compatibility."
-          else
-            echo "WARNING: __TERMUX__ guard not found — Verilator version differs, patch skipped. Check manually." >&2
-            exit 1
-          fi
-          
       - uses: actions/upload-artifact@v4
         with:
           name: sushic500-cpp-source
