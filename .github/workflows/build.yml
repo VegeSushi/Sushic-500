@@ -72,27 +72,27 @@ jobs:
           name: sushic500-roms
           path: dist/sushic500-roms
 
-  build-libretro-cross:
-    name: Libretro core (Arch, ${{ matrix.arch }})
+  build-cross:
+    name: Cross-compile (Linux, ${{ matrix.arch }})
     runs-on: ubuntu-latest
-    container:
-      image: archlinux:latest
     strategy:
       matrix:
         include:
           - arch: arm64
-            packages: aarch64-linux-gnu-gcc aarch64-linux-gnu-binutils
+            deb_arch: arm64
+            packages: gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libsdl2-dev:arm64
             prefix: aarch64-linux-gnu
           - arch: riscv64
-            packages: riscv64-linux-gnu-gcc riscv64-linux-gnu-binutils
+            deb_arch: riscv64
+            packages: gcc-riscv64-linux-gnu g++-riscv64-linux-gnu libsdl2-dev:riscv64
             prefix: riscv64-linux-gnu
     steps:
-      - name: Install toolchain
+      - name: Install cross-toolchain and SDL2
         run: |
-          pacman -Sy --noconfirm base-devel git verilator curl python vim ${{ matrix.packages }}
-
-      - name: Trust the workspace directory
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          sudo dpkg --add-architecture ${{ matrix.deb_arch }}
+          sudo apt-get update
+          sudo apt-get install -y verilator curl python3 vim \
+            ${{ matrix.packages }}
 
       - name: Check out repo
         uses: actions/checkout@v4
@@ -104,28 +104,42 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /opt/cc65
-          key: ${{ runner.os }}-cc65-master
+          key: ubuntu-cc65-master
 
       - name: Build cc65 from source (host tool)
         if: steps.cache-cc65.outputs.cache-hit != 'true'
         run: |
           git clone --depth 1 https://github.com/cc65/cc65.git /tmp/cc65
           make -C /tmp/cc65 -j"$(nproc)"
-          make -C /tmp/cc65 PREFIX=/opt/cc65 install
+          sudo make -C /tmp/cc65 PREFIX=/opt/cc65 install
 
       - name: Add cc65 to PATH
         run: echo "/opt/cc65/bin" >> $GITHUB_PATH
 
-      - name: Build libretro core (cross to ${{ matrix.arch }})
+      - name: Build BIOS/charset hex (host, native)
+        run: make rom charset
+
+      - name: Build emulator and libretro core (cross to ${{ matrix.arch }})
         run: |
-          make rom charset
-          make libretro CC=${{ matrix.prefix }}-gcc CXX=${{ matrix.prefix }}-g++
+          export CC=${{ matrix.prefix }}-gcc
+          export CXX=${{ matrix.prefix }}-g++
+          export LINK=${{ matrix.prefix }}-g++
+          
+          make emu libretro
 
       - name: Stage package
         run: |
+          mkdir -p dist/sushic500-linux-${{ matrix.arch }}
           mkdir -p dist/sushic500-libretro-${{ matrix.arch }}
+          
+          cp build/sushic500-emu dist/sushic500-linux-${{ matrix.arch }}/
           cp build/sushic500_libretro.so dist/sushic500-libretro-${{ matrix.arch }}/
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sushic500-linux-${{ matrix.arch }}
+          path: dist/sushic500-linux-${{ matrix.arch }}
+          
       - uses: actions/upload-artifact@v4
         with:
           name: sushic500-libretro-${{ matrix.arch }}
@@ -145,34 +159,27 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Build
+      - name: Build Standalone Emulator Only
         run: |
           export CPLUS_INCLUDE_PATH="$(brew --prefix)/include"
           export C_INCLUDE_PATH="$(brew --prefix)/include"
-          make all
+          # Only run the targets required for the standalone emulator, skipping libretro
+          make rom cart charset emu
 
       - name: Stage package
         run: |
           mkdir -p dist/sushic500-macos
-          mkdir -p dist/sushic500-libretro-macos
-          
           cp build/sushic500-emu dist/sushic500-macos/
-          cp build/sushic500_libretro.* dist/sushic500-libretro-macos/ 2>/dev/null || true
 
       - uses: actions/upload-artifact@v4
         with:
           name: sushic500-macos
           path: dist/sushic500-macos
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sushic500-libretro-macos
-          path: dist/sushic500-libretro-macos
-
   release:
     name: Attach binaries to release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [ build-linux, build-libretro-cross, build-macos ]
+    needs: [ build-linux, build-cross, build-macos ]
     runs-on: ubuntu-latest
     permissions:
       contents: write
