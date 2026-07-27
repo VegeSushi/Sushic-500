@@ -72,27 +72,27 @@ jobs:
           name: sushic500-roms
           path: dist/sushic500-roms
 
-  build-cross:
-    name: Cross-compile (Linux, ${{ matrix.arch }})
+  build-libretro-cross:
+    name: Libretro core (Arch, ${{ matrix.arch }})
     runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
     strategy:
       matrix:
         include:
           - arch: arm64
-            deb_arch: arm64
-            packages: gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libsdl2-dev:arm64
+            packages: aarch64-linux-gnu-gcc aarch64-linux-gnu-binutils
             prefix: aarch64-linux-gnu
           - arch: riscv64
-            deb_arch: riscv64
-            packages: gcc-riscv64-linux-gnu g++-riscv64-linux-gnu libsdl2-dev:riscv64
+            packages: riscv64-linux-gnu-gcc riscv64-linux-gnu-binutils
             prefix: riscv64-linux-gnu
     steps:
-      - name: Install cross-toolchain and SDL2
+      - name: Install toolchain
         run: |
-          sudo dpkg --add-architecture ${{ matrix.deb_arch }}
-          sudo apt-get update
-          sudo apt-get install -y verilator curl python3 vim \
-            ${{ matrix.packages }}
+          pacman -Sy --noconfirm base-devel git verilator curl python vim ${{ matrix.packages }}
+
+      - name: Trust the workspace directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Check out repo
         uses: actions/checkout@v4
@@ -104,14 +104,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /opt/cc65
-          key: ubuntu-cc65-master
+          key: ${{ runner.os }}-cc65-master
 
       - name: Build cc65 from source (host tool)
         if: steps.cache-cc65.outputs.cache-hit != 'true'
         run: |
           git clone --depth 1 https://github.com/cc65/cc65.git /tmp/cc65
           make -C /tmp/cc65 -j"$(nproc)"
-          sudo make -C /tmp/cc65 PREFIX=/opt/cc65 install
+          make -C /tmp/cc65 PREFIX=/opt/cc65 install
 
       - name: Add cc65 to PATH
         run: echo "/opt/cc65/bin" >> $GITHUB_PATH
@@ -119,27 +119,15 @@ jobs:
       - name: Build BIOS/charset hex (host, native)
         run: make rom charset
 
-      - name: Build emulator and libretro core (cross to ${{ matrix.arch }})
+      - name: Build libretro core (cross to ${{ matrix.arch }})
         run: |
-          export CC=${{ matrix.prefix }}-gcc
-          export CXX=${{ matrix.prefix }}-g++
-          export LINK=${{ matrix.prefix }}-g++
-          
-          make emu libretro
+          make libretro CC=${{ matrix.prefix }}-gcc CXX=${{ matrix.prefix }}-g++
 
       - name: Stage package
         run: |
-          mkdir -p dist/sushic500-linux-${{ matrix.arch }}
           mkdir -p dist/sushic500-libretro-${{ matrix.arch }}
-          
-          cp build/sushic500-emu dist/sushic500-linux-${{ matrix.arch }}/
           cp build/sushic500_libretro.so dist/sushic500-libretro-${{ matrix.arch }}/
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sushic500-linux-${{ matrix.arch }}
-          path: dist/sushic500-linux-${{ matrix.arch }}
-          
       - uses: actions/upload-artifact@v4
         with:
           name: sushic500-libretro-${{ matrix.arch }}
@@ -179,7 +167,7 @@ jobs:
   release:
     name: Attach binaries to release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [ build-linux, build-cross, build-macos ]
+    needs: [ build-linux, build-libretro-cross, build-macos ]
     runs-on: ubuntu-latest
     permissions:
       contents: write
