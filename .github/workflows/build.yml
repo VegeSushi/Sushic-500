@@ -220,18 +220,30 @@ jobs:
           mkdir -p dist/sushic500-cpp-source/verilator_runtime
           mkdir -p dist/sushic500-cpp-source/src
           mkdir -p dist/sushic500-cpp-source/assets
-          
+
           # 1. The generated Verilator C++ classes
           cp -r build/cpp_model/* dist/sushic500-cpp-source/model/
-          
+
           # 2. The Verilator standard runtime
           cp -r /usr/share/verilator/include/* dist/sushic500-cpp-source/verilator_runtime/
-          
+
           # 3. Your wrapper source code
           cp -r emu libretro dist/sushic500-cpp-source/src/
-          
-          # 4. Built ROM files 
+
+          # 4. Built ROM files
           cp build/bios.hex build/charset.hex dist/sushic500-cpp-source/assets/
+
+      - name: Patch Verilator runtime for Android (Bionic has no pthread_getaffinity_np)
+        run: |
+          RUNTIME_HDR="dist/sushic500-cpp-source/verilator_runtime/verilatedos_c.h"
+          if grep -q 'pthread_getaffinity_np' "$RUNTIME_HDR"; then
+            sed -i \
+              -e 's/#if defined(__linux__)/#if defined(__linux__) \&\& !defined(__ANDROID__)/' \
+              "$RUNTIME_HDR"
+            echo "Patched $RUNTIME_HDR for Android/Bionic compatibility."
+          else
+            echo "pthread_getaffinity_np not found — Verilator version may already be Android-safe, or macro changed. Check manually."
+          fi
           
       - uses: actions/upload-artifact@v4
         with:
