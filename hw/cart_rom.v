@@ -4,9 +4,13 @@ module cart_rom (
     output reg [7:0] dout
 );
     reg [7:0] rom [0:16383];
+    string file_path;
     
     initial begin
-        $readmemh("cart.hex", rom);
+        if (!$value$plusargs("cart_rom=%s", file_path)) begin
+            file_path = "cart.hex";
+        end
+        $readmemh(file_path, rom);
     end
     
     always @(posedge clk) begin

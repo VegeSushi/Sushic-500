@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <string>
 #include <cstring>
+#include <vector>
 #include <SDL2/SDL.h>
 #include "Vsushic500_top.h"
 #include "verilated.h"
@@ -14,14 +15,14 @@
 #endif
 
 // MC6847 NTSC Approximate Resolution
-const int TEX_W = 320;   // or keep 320, negligible
+const int TEX_W = 320;
 const int TEX_H = 490;
 
-bool load_cartridge(const std::string& filepath) {
+bool load_cartridge(const std::string& filepath, const std::string& out_hex) {
     std::ifstream bin_file(filepath, std::ios::binary);
     if (!bin_file) return false;
 
-    std::ofstream hex_file("cart.hex");
+    std::ofstream hex_file(out_hex);
     char byte;
     int count = 0;
 
@@ -38,16 +39,11 @@ bool load_cartridge(const std::string& filepath) {
     return true;
 }
 
-void write_empty_cartridge() {
-    std::ofstream hex_file("cart.hex");
+void write_empty_cartridge(const std::string& out_hex) {
+    std::ofstream hex_file(out_hex);
     for (int i = 0; i < 16384; i++) hex_file << "EA\n";
 }
 
-// ---------------------------------------------------------------------
-// Native "attach cartridge" file picker. No extra dependencies: uses the
-// OS-provided dialog (Win32 common dialog, macOS `osascript`, Linux
-// `zenity`/`kdialog`). Returns an empty string if nothing was chosen.
-// ---------------------------------------------------------------------
 #if defined(_WIN32)
 std::string open_file_dialog() {
     char filename[MAX_PATH] = "";
@@ -77,7 +73,6 @@ std::string open_file_dialog() {
 }
 #else
 std::string open_file_dialog() {
-    // Try zenity first, fall back to kdialog.
     FILE* f = popen(
         "zenity --file-selection --title='Attach Cartridge' 2>/dev/null || "
         "kdialog --getopenfilename . 2>/dev/null",
@@ -94,43 +89,49 @@ std::string open_file_dialog() {
 #endif
 
 int main(int argc, char** argv) {
-    Verilated::commandArgs(argc, argv);
-
     std::string cart_path;
     if (argc > 1) cart_path = argv[1];
 
+    // Combine standard arguments with our custom plusargs
+    std::vector<const char*> args;
+    args.push_back(argv[0]);
+    for (int i = 1; i < argc; i++) args.push_back(argv[i]);
+    
+    std::string arg_cart = "+cart_rom=cart.hex";
+    std::string arg_bios = "+bios_rom=bios.hex";
+    std::string arg_char = "+char_rom=charset.hex";
+    
+    args.push_back(arg_cart.c_str());
+    args.push_back(arg_bios.c_str());
+    args.push_back(arg_char.c_str());
+
+    Verilated::commandArgs(args.size(), args.data());
+
     SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS);
 
-    // Window remains 640x480, but texture matches vintage hardware
     SDL_Window* window = SDL_CreateWindow("Sushic-500 Emulator",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 640, 480, SDL_WINDOW_RESIZABLE);
     SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
 
-    // Use the native resolution for the pixel buffer
     SDL_Texture* texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
         SDL_TEXTUREACCESS_STREAMING, TEX_W, TEX_H);
     uint32_t* framebuffer = new uint32_t[TEX_W * TEX_H];
 
     bool quit = false;
 
-    // Outer loop: each pass = one "power cycle" of the machine with the
-    // cartridge currently selected. Re-entering it is what performs the
-    // cartridge swap + auto-reset.
     while (!quit) {
         if (!cart_path.empty()) {
             std::cout << "Sushic-500 loading cartridge: " << cart_path << "\n";
-            if (!load_cartridge(cart_path)) {
+            if (!load_cartridge(cart_path, "cart.hex")) {
                 std::cerr << "Failed to load " << cart_path << ", booting empty.\n";
-                write_empty_cartridge();
+                write_empty_cartridge("cart.hex");
                 cart_path.clear();
             }
         } else {
             std::cout << "Sushic-500 booted with empty cartridge slot.\n";
-            write_empty_cartridge();
+            write_empty_cartridge("cart.hex");
         }
 
-        // Fresh Verilated model: its constructor runs the module's initial
-        // blocks, which is what re-reads build/cart.hex via $readmemh.
         Vsushic500_top* top = new Vsushic500_top;
 
         int px = 0, py = 0;
@@ -148,16 +149,11 @@ int main(int argc, char** argv) {
 
         while (!quit && !swap_cartridge && !Verilated::gotFinish()) {
 
-            // Poll SDL events every 50k ticks to keep simulation fast
             if (sim_time % 50000 == 0) {
                 while (SDL_PollEvent(&e)) {
                     if (e.type == SDL_QUIT) quit = true;
                     if (e.type == SDL_KEYDOWN) {
                         if (e.key.keysym.sym == SDLK_BACKQUOTE) {
-                            // '`' pressed: open the file picker to attach a
-                            // new cartridge. Selecting a file tears down and
-                            // rebuilds the model above, which is an implicit
-                            // full reset with the new cartridge inserted.
                             std::string picked = open_file_dialog();
                             if (!picked.empty()) {
                                 cart_path = picked;
@@ -186,7 +182,6 @@ int main(int argc, char** argv) {
             top->clk_27mhz = 1;
             top->eval();
 
-            // 1. Plot Pixels (active display = not in hblank/vblank)
             if (!top->hblank && !top->vblank) {
                 if (px < TEX_W && py >= 0 && py < TEX_H) {
                     uint8_t r = (top->vga_r << 4) | top->vga_r;
@@ -198,14 +193,11 @@ int main(int argc, char** argv) {
                 px++;
             }
 
-            // 2. Handle Sync Pulses
             if (top->hsync == 1 && prev_hsync == 0) {
                 px = 0;
                 py++;
             }
 
-            // Reset py exactly when active video starts (vblank falling edge),
-            // not from a guessed vsync-to-active-video line offset.
             if (top->vblank == 0 && prev_vblank == 1) {
                 py = 0;
             }
@@ -228,7 +220,6 @@ int main(int argc, char** argv) {
         }
 
         delete top;
-        // Loop back around if a cartridge swap was requested; otherwise quit.
     }
 
     delete[] framebuffer;
