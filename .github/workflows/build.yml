@@ -236,13 +236,14 @@ jobs:
       - name: Patch Verilator runtime for Android (Bionic has no pthread_getaffinity_np)
         run: |
           RUNTIME_HDR="dist/sushic500-cpp-source/verilator_runtime/verilatedos_c.h"
-          if grep -q 'pthread_getaffinity_np' "$RUNTIME_HDR"; then
+          if grep -q '__TERMUX__' "$RUNTIME_HDR"; then
             sed -i \
-              -e 's/#if defined(__linux__)/#if defined(__linux__) \&\& !defined(__ANDROID__)/' \
+              's/#ifdef __TERMUX__/#if defined(__TERMUX__) || defined(__ANDROID__)/' \
               "$RUNTIME_HDR"
             echo "Patched $RUNTIME_HDR for Android/Bionic compatibility."
           else
-            echo "pthread_getaffinity_np not found — Verilator version may already be Android-safe, or macro changed. Check manually."
+            echo "WARNING: __TERMUX__ guard not found — Verilator version differs, patch skipped. Check manually." >&2
+            exit 1
           fi
           
       - uses: actions/upload-artifact@v4
